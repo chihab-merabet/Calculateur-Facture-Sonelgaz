@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculateur Facture Sonelgaz</title>
+    <style>
+        :root { --primary: #0068a5; --bg: #f4f7f6; --border: #ddd; }
+        body { font-family: sans-serif; background-color: var(--bg); padding: 20px; color: #333; }
+        .container { max-width: 850px; margin: 0 auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: var(--primary); }
+        .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #eef5f9; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .input-group { display: flex; flex-direction: column; }
+        label { font-weight: bold; font-size: 0.85rem; margin-bottom: 5px; }
+        input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1.1rem; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 0.9rem; }
+        th, td { border: 1px solid var(--border); padding: 8px; text-align: right; }
+        th { background: #f8f9fa; text-align: center; }
+        .line { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee; }
+        .bold { font-weight: bold; border-bottom: 1px solid #ccc; padding-top: 8px; }
+        .big-total { background: #e8f4fd; border: 2px solid var(--primary); padding: 15px; margin-top: 15px; border-radius: 6px; display: flex; justify-content: space-between; font-weight: bold; font-size: 1.2rem; }
+        .final { background: #fff3cd; color: #856404; font-size: 1.4rem; border-color: #ffeeba; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Simulateur de Facture</h1>
+
+    <div class="input-grid">
+        <div class="input-group"><label>Élec: Ancien Index</label><input type="number" id="pE" value="0"></div>
+        <div class="input-group"><label>Élec: Nouvel Index</label><input type="number" id="cE" value="0"></div>
+        <div class="input-group"><label>Gaz: Ancien Index</label><input type="number" id="pG" value="0"></div>
+        <div class="input-group"><label>Gaz: Nouvel Index</label><input type="number" id="cG" value="0"></div>
+    </div>
+
+    <button onclick="calculate()">Calculer la Facture</button>
+
+    <div id="results" style="display:none;">
+        <h3>Consommation</h3>
+        <div class="line"><span>Électricité (KWh)</span> <span id="resCE">0</span></div>
+        <div class="line"><span>Gaz (Th)</span> <span id="resCG">0</span></div>
+
+        <h3>Détails Électricité</h3>
+        <table>
+            <thead><tr><th>Tranche</th><th>Quantité</th><th>Prix U</th><th>HT</th></tr></thead>
+            <tbody id="tabE"></tbody>
+        </table>
+
+        <h3>Détails Gaz</h3>
+        <table>
+            <thead><tr><th>Tranche</th><th>Quantité</th><th>Prix U</th><th>HT</th></tr></thead>
+            <tbody id="tabG"></tbody>
+        </table>
+
+        <h3>Facturation Finale</h3>
+        <div class="line"><span>Montant Électricité HT</span> <span id="mEHT">0.00</span></div>
+        <div class="line"><span>Montant Gaz HT</span> <span id="mGHT">0.00</span></div>
+        <div class="line"><span>Redevance Fixe</span> <span>164.16</span></div>
+        <div class="line bold"><span>Montant Total HT</span> <span id="mTotHT">0.00</span></div>
+        
+        <div class="line"><span>TVA 9% (Fixe + Tranches 1 & 2)</span> <span id="tva9">0.00</span></div>
+        <div class="line"><span>TVA 19% (Tranches 3 & 4)</span> <span id="tva19">0.00</span></div>
+        <div class="line"><span>Total TVA</span> <span id="tvaTot">0.00</span></div>
+
+        <div class="line"><span>Droit fixe sur consommation</span> <span>200.00</span></div>
+        <div class="line"><span>Taxe d'habitation</span> <span>150.00</span></div>
+        <div class="line"><span>Contribution / REPE / RGPE</span> <span>0.00</span></div>
+
+        <div class="big-total">
+            <span>Net à payer TTC</span>
+            <span id="netTTC">0.00 DA</span>
+        </div>
+
+        <div class="line" style="margin-top:10px"><span>Timbre en espèces (1%)</span> <span id="timbre">0.00</span></div>
+
+        <div class="big-total final">
+            <span>Total à payer en espèces</span>
+            <span id="totalPay">0.00 DA</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const E_PRICES = [1.7787, 4.1789, 4.8120, 5.4796];
+    const E_LIMITS = [125, 125, 750];
+    const G_PRICES = [0.1682, 0.3245, 0.4025, 0.4599];
+    const G_LIMITS = [1125, 1375, 5000];
+
+    function getTranches(cons, limits, prices) {
+        let rem = cons;
+        let data = [];
+        let base9 = 0, base19 = 0;
+
+        for (let i = 0; i < 4; i++) {
+            let q = 0;
+            if (i < 3) {
+                q = Math.min(rem, limits[i]);
+            } else {
+                q = rem;
+            }
+            let m = q * prices[i];
+            data.push({ q, p: prices[i], m });
+            rem -= q;
+
+            // Logic change: Tranche 1 & 2 = 9%, Tranche 3 & 4 = 19%
+            if (i < 2) base9 += m;
+            else base19 += m;
+        }
+        return { data, total: data.reduce((a, b) => a + b.m, 0), base9, base19 };
+    }
+
+    function calculate() {
+        const ce = Math.max(0, parseFloat(document.getElementById('cE').value) - parseFloat(document.getElementById('pE').value));
+        const cg = Math.max(0, parseFloat(document.getElementById('cG').value) - parseFloat(document.getElementById('pG').value)) * 8.9;
+
+        const resE = getTranches(ce, E_LIMITS, E_PRICES);
+        const resG = getTranches(cg, G_LIMITS, G_PRICES);
+
+        const buildTable = (id, data) => {
+            document.getElementById(id).innerHTML = data.map((r, i) => 
+                `<tr><td>Tranche ${i+1}</td><td>${r.q.toFixed(2)}</td><td>${r.p}</td><td>${r.m.toFixed(2)}</td></tr>`
+            ).join('');
+        };
+        buildTable('tabE', resE.data);
+        buildTable('tabG', resG.data);
+
+        const fixed = 164.16;
+        const totalHT = resE.total + resG.total + fixed;
+        
+        // TVA Logic requested: 9% for (Fixed + T1 + T2), 19% for (T3 + T4)
+        const vTva9 = (fixed + resE.base9 + resG.base9) * 0.09;
+        const vTva19 = (resE.base19 + resG.base19) * 0.19;
+        const totalTVA = vTva9 + vTva19;
+
+        const netTTC = totalHT + totalTVA + 200 + 150;
+        const vTimbre = Math.ceil(netTTC * 0.01);
+        const totalPay = netTTC + vTimbre;
+
+        document.getElementById('resCE').innerText = ce;
+        document.getElementById('resCG').innerText = cg;
+        document.getElementById('mEHT').innerText = resE.total.toFixed(2);
+        document.getElementById('mGHT').innerText = resG.total.toFixed(2);
+        document.getElementById('mTotHT').innerText = totalHT.toFixed(2);
+        document.getElementById('tva9').innerText = vTva9.toFixed(2);
+        document.getElementById('tva19').innerText = vTva19.toFixed(2);
+        document.getElementById('tvaTot').innerText = totalTVA.toFixed(2);
+        document.getElementById('netTTC').innerText = netTTC.toFixed(2) + " DA";
+        document.getElementById('timbre').innerText = vTimbre.toFixed(2);
+        document.getElementById('totalPay').innerText = totalPay.toFixed(2) + " DA";
+        document.getElementById('results').style.display = 'block';
+    }
+</script>
+</body>
+</html>
